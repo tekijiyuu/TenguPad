@@ -33,7 +33,7 @@ class TenguPad(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="TenguPad",
-            display_name="TenguPad v0.2",
+            display_name="TenguPad v0.3",
             search_aliases=["fit image", "letterbox", "rgb pad", "aspect ratio resize", "content scale"],
             category="image/transform",
             description=(
@@ -104,7 +104,7 @@ class TenguPad(IO.ComfyNode):
                 IO.Combo.Input(
                     "color_preset",
                     options=list(cls.PRESETS.keys()) + ["custom"],
-                    default="white",
+                    default="green",
                     display_name="Color Preset",
                     tooltip="Quickly set RGB values. Select 'custom' for manual control."
                 ),
@@ -114,7 +114,9 @@ class TenguPad(IO.ComfyNode):
             ],
             outputs=[
                 IO.Image.Output(),
-                IO.Mask.Output("mask")],
+                IO.Mask.Output("mask"),
+                IO.Int.Output("width", display_name="Width", tooltip="Final output image width in pixels"),
+                IO.Int.Output("height", display_name="Height", tooltip="Final output image height in pixels")],
         )
 
     @classmethod
@@ -164,7 +166,7 @@ class TenguPad(IO.ComfyNode):
                 # Apply feathering to edges
                 mask = cls._apply_feathering(mask, feather_pixels)
             
-            return IO.NodeOutput(output, mask.squeeze(1))
+            return IO.NodeOutput(output, mask.squeeze(1), target_width, target_height)
         
         # Calculate scale to preserve aspect ratio
         scale_w = target_width / orig_width
@@ -271,7 +273,7 @@ class TenguPad(IO.ComfyNode):
         if feather_pixels > 0:
             mask = cls._apply_feathering(mask, feather_pixels)
         
-        return IO.NodeOutput(output, mask.squeeze(1))
+        return IO.NodeOutput(output, mask.squeeze(1), target_width, target_height)
 
     @staticmethod
     def _apply_mask_dilation(mask, dilation_pixels):
