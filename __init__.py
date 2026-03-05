@@ -13,7 +13,7 @@ class TenguPad(IO.ComfyNode):
     Advanced image resizing with flexible padding/cropping options, RGB color control,
     and content scaling within padded space.
     Preserves aspect ratio with customizable padding position, true RGB padding color (0-255),
-    multiple aspect ratio modes, and adjustable content scale inside padding.
+    multiple aspect ratio modes, adjustable content scale inside padding, and crop positioning.
     """
     
     # Preset colors in RGB (0-255) format
@@ -33,13 +33,13 @@ class TenguPad(IO.ComfyNode):
     def define_schema(cls):
         return IO.Schema(
             node_id="TenguPad",
-            display_name="TenguPad v0.3",
-            search_aliases=["fit image", "letterbox", "rgb pad", "aspect ratio resize", "content scale"],
+            display_name="TenguPad v0.4",
+            search_aliases=["fit image", "letterbox", "rgb pad", "aspect ratio resize", "content scale", "crop position"],
             category="image/transform",
             description=(
                 "Resize image while preserving aspect ratio, then pad/crop to target dimensions.\n"
-                "Features true RGB padding color control (0-255), customizable position, aspect modes,\n"
-                "and CONTENT SCALE to adjust image size within the padded canvas."
+                "Features true RGB padding color control (0-255), customizable position for both pad and crop modes,\n"
+                "aspect modes, CONTENT SCALE to adjust image size within the padded canvas, and CROP POSITION control."
             ),
             inputs=[
                 IO.Image.Input("image"),
@@ -73,7 +73,13 @@ class TenguPad(IO.ComfyNode):
                     "padding_position",
                     options=["center", "top-left", "top-right", "bottom-left", "bottom-right", "center-top", "center-bottom"],
                     default="center",
-                    tooltip="Position of content within padded canvas"
+                    tooltip="Position of content within padded canvas (used in 'pad' mode)"
+                ),
+                IO.Combo.Input(
+                    "crop_position",
+                    options=["center", "top-left", "top", "top-right", "left", "right", "bottom-left", "bottom", "bottom-right"],
+                    default="center",
+                    tooltip="Which part of the image to preserve when cropping (used in 'crop' mode)"
                 ),
                 IO.Combo.Input(
                     "interpolation",
@@ -128,6 +134,7 @@ class TenguPad(IO.ComfyNode):
         aspect_ratio_mode,
         content_scale,
         padding_position,
+        crop_position,
         interpolation,
         feather_pixels,
         mask_dilation,
@@ -207,35 +214,73 @@ class TenguPad(IO.ComfyNode):
         if aspect_ratio_mode == "pad":
             pad_w = max(0, target_width - new_width)
             pad_h = max(0, target_height - new_height)
+            
+            # Determine offsets based on padding position
+            if padding_position == "center":
+                x_offset = max(0, pad_w // 2)
+                y_offset = max(0, pad_h // 2)
+            elif padding_position == "top-left":
+                x_offset = 0
+                y_offset = 0
+            elif padding_position == "top-right":
+                x_offset = max(0, pad_w)
+                y_offset = 0
+            elif padding_position == "bottom-left":
+                x_offset = 0
+                y_offset = max(0, pad_h)
+            elif padding_position == "bottom-right":
+                x_offset = max(0, pad_w)
+                y_offset = max(0, pad_h)
+            elif padding_position == "center-top":
+                x_offset = max(0, pad_w // 2)
+                y_offset = 0
+            elif padding_position == "center-bottom":
+                x_offset = max(0, pad_w // 2)
+                y_offset = max(0, pad_h)
+            else:  # Fallback
+                x_offset = max(0, pad_w // 2)
+                y_offset = max(0, pad_h // 2)
+                
         else:  # crop mode
-            pad_w = target_width - new_width  # Negative = crop needed
-            pad_h = target_height - new_height
-        
-        # Determine offsets based on position
-        if padding_position == "center":
-            x_offset = max(0, pad_w // 2)
-            y_offset = max(0, pad_h // 2)
-        elif padding_position == "top-left":
-            x_offset = 0
-            y_offset = 0
-        elif padding_position == "top-right":
-            x_offset = max(0, pad_w)
-            y_offset = 0
-        elif padding_position == "bottom-left":
-            x_offset = 0
-            y_offset = max(0, pad_h)
-        elif padding_position == "bottom-right":
-            x_offset = max(0, pad_w)
-            y_offset = max(0, pad_h)
-        elif padding_position == "center-top":
-            x_offset = max(0, pad_w // 2)
-            y_offset = 0
-        elif padding_position == "center-bottom":
-            x_offset = max(0, pad_w // 2)
-            y_offset = max(0, pad_h)
-        else:  # Fallback
-            x_offset = max(0, pad_w // 2)
-            y_offset = max(0, pad_h // 2)
+            # Calculate how much we need to crop
+            crop_w = new_width - target_width  # Positive = need to crop horizontally
+            crop_h = new_height - target_height  # Positive = need to crop vertically
+            
+            # Determine source offsets based on crop position
+            if crop_position == "center":
+                src_x = max(0, crop_w // 2)
+                src_y = max(0, crop_h // 2)
+            elif crop_position == "top-left":
+                src_x = 0
+                src_y = 0
+            elif crop_position == "top":
+                src_x = max(0, crop_w // 2)
+                src_y = 0
+            elif crop_position == "top-right":
+                src_x = max(0, crop_w)
+                src_y = 0
+            elif crop_position == "left":
+                src_x = 0
+                src_y = max(0, crop_h // 2)
+            elif crop_position == "right":
+                src_x = max(0, crop_w)
+                src_y = max(0, crop_h // 2)
+            elif crop_position == "bottom-left":
+                src_x = 0
+                src_y = max(0, crop_h)
+            elif crop_position == "bottom":
+                src_x = max(0, crop_w // 2)
+                src_y = max(0, crop_h)
+            elif crop_position == "bottom-right":
+                src_x = max(0, crop_w)
+                src_y = max(0, crop_h)
+            else:  # Fallback to center
+                src_x = max(0, crop_w // 2)
+                src_y = max(0, crop_h // 2)
+            
+            # For crop mode, we don't pad - we crop from the source
+            x_offset = -src_x  # Negative indicates cropping
+            y_offset = -src_y
         
         # Handle crop mode (negative offsets = source cropping)
         src_x = max(0, -x_offset)
